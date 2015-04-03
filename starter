@@ -1,12 +1,22 @@
-
+#! /bin/bash
 declare -a services=("DVA" "INV/inventory" "USR/account" "BKS/backstage" "PUR/purchase")
 declare -a serv_names=("DVA" "INV" "USR" "BKS" "PUR")
 declare -a add_options=("" "" "" "export JAVA_OPTS='-Xms1024M -Xmx3072M -XX:MaxPermSize=1024M'" "export JAVA_OPTS='-Xms1024M -Xmx3072M -XX:MaxPermSize=1024M'" )
 declare -a script_names=("./diva" "./dev" "./dev" "./dev" "./dev")
 
+current_dir="$(pwd)"
 starter_prefix="tfly_starter_"
-rm -f ./${starter_prefix}*
-root_dir="$(pwd)"
+
+# Determine a "root" directory
+this_source="${BASH_SOURCE[0]}"
+while [ -h "${this_source}" ]; do # resolve $this_source until the file is no longer a symlink
+  root_dir="$( cd -P "$( dirname "${this_source}" )" && pwd )"
+  this_source="$(readlink "${this_source}")"
+  [[ ${this_source} != /* ]] && this_source="$DIR/${this_source}" # if ${this_source} was a relative symlink, we need to resolve it relative to the path where the symlink file was located
+done
+root_dir="$( cd -P "$( dirname "${this_source}" )" && pwd )"
+root_dir=$( echo ${root_dir} | sed 's/\(.*\)\/\(.*\)/\1/' ) # remove a last part of the path ("/tfly_starter")
+cd ${root_dir}
 
 cur_user=$(whoami)
 home_dir="/home/${cur_user}"
@@ -26,13 +36,13 @@ while [[ $indx -lt $num_of_servs ]]; do
     case "${is_continue}" in
         'y' | 'Y' )
             echo 'Service starts. Please wait until it run before initiate the next service.'
-	    grails_version="DEFAULT"
+	        grails_version="DEFAULT"
             app_props_filename="${root_dir}/${service}/application.properties"
             if [ -s ${app_props_filename} ]; then
-	        while read line; do
-		    gr_vers=$(echo ${line} | sed -n '/grails.version.*/p' | cut --delimiter='=' --fields=2)
-		    [[ -n "${gr_vers}" ]] && grails_version=$gr_vers
-	        done < "${root_dir}/${service}/application.properties"
+	            while read line; do
+		            gr_vers=$(echo ${line} | sed -n '/grails.version.*/p' | cut --delimiter='=' --fields=2)
+		            [[ -n "${gr_vers}" ]] && grails_version=$gr_vers
+	            done < "${root_dir}/${service}/application.properties"
             fi
 
 	    starter_filename="${root_dir}/${starter_prefix}${srv_name}"
@@ -41,8 +51,8 @@ while [[ $indx -lt $num_of_servs ]]; do
 	    echo "cd ${serv_dir}" >> "${starter_filename}"
 	    echo "${add_opts}" >> "${starter_filename}"
             if [ ${grails_version} != "DEFAULT" ]; then
-	        echo "[[ -s \"${gvm_settings_path}\" ]] && source \"${gvm_settings_path}\" " >> "${starter_filename}"
-	        echo "gvm use grails ${grails_version}" >> "${starter_filename}"
+	            echo "[[ -s \"${gvm_settings_path}\" ]] && source \"${gvm_settings_path}\" " >> "${starter_filename}"
+	            echo "gvm use grails ${grails_version}" >> "${starter_filename}"
             fi
 	    echo "${script_name}" >> "${starter_filename}"
 
@@ -56,6 +66,7 @@ while [[ $indx -lt $num_of_servs ]]; do
             echo '1. Stop it'
             echo "2. Run (in a current dir) a script '${starter_prefix}_<name_of_service>', where <name_of_service> is USR, INV etc"
             echo 'Bye!'
+            cd "${current_dir}"
             exit 0 
             ;;
         * ) echo "Please enter 'y[es]' or 'n[o]'" 
@@ -63,3 +74,5 @@ while [[ $indx -lt $num_of_servs ]]; do
     
 done
 
+cd "${current_dir}"
+exit 0
