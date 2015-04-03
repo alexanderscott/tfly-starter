@@ -1,0 +1,65 @@
+
+declare -a services=("DVA" "INV/inventory" "USR/account" "BKS/backstage" "PUR/purchase")
+declare -a serv_names=("DVA" "INV" "USR" "BKS" "PUR")
+declare -a add_options=("" "" "" "export JAVA_OPTS='-Xms1024M -Xmx3072M -XX:MaxPermSize=1024M'" "export JAVA_OPTS='-Xms1024M -Xmx3072M -XX:MaxPermSize=1024M'" )
+declare -a script_names=("./diva" "./dev" "./dev" "./dev" "./dev")
+
+starter_prefix="tfly_starter_"
+rm -f ./${starter_prefix}*
+root_dir="$(pwd)"
+
+cur_user=$(whoami)
+home_dir="/home/${cur_user}"
+gvm_settings_path="${home_dir}/.gvm/bin/gvm-init.sh"
+
+num_of_servs=${#services[*]}
+indx=0
+while [[ $indx -lt $num_of_servs ]]; do
+
+    service="${services[${indx}]}"
+    srv_name="${serv_names[${indx}]}"
+    script_name="${script_names[${indx}]}"
+    add_opts="${add_options[${indx}]}"
+
+    read -p "try to start ${srv_name}? (y/n)" -n 1 -s is_continue
+    echo
+    case "${is_continue}" in
+        'y' | 'Y' )
+            echo 'Service starts. Please wait until it run before initiate the next service.'
+	    grails_version="DEFAULT"
+            app_props_filename="${root_dir}/${service}/application.properties"
+            if [ -s ${app_props_filename} ]; then
+	        while read line; do
+		    gr_vers=$(echo ${line} | sed -n '/grails.version.*/p' | cut --delimiter='=' --fields=2)
+		    [[ -n "${gr_vers}" ]] && grails_version=$gr_vers
+	        done < "${root_dir}/${service}/application.properties"
+            fi
+
+	    starter_filename="${root_dir}/${starter_prefix}${srv_name}"
+	    serv_dir="${root_dir}/${service}"
+	    echo "#! /bin/bash" > "${starter_filename}"
+	    echo "cd ${serv_dir}" >> "${starter_filename}"
+	    echo "${add_opts}" >> "${starter_filename}"
+            if [ ${grails_version} != "DEFAULT" ]; then
+	        echo "[[ -s \"${gvm_settings_path}\" ]] && source \"${gvm_settings_path}\" " >> "${starter_filename}"
+	        echo "gvm use grails ${grails_version}" >> "${starter_filename}"
+            fi
+	    echo "${script_name}" >> "${starter_filename}"
+
+	    chmod 777 "${starter_filename}"
+	    xterm -e "${starter_filename}" &
+	    indx=`expr ${indx} + 1`
+
+            ;;
+        'n' | 'N' )
+            echo 'If you want to restart some services those working at the moment:'
+            echo '1. Stop it'
+            echo "2. Run (in a current dir) a script '${starter_prefix}_<name_of_service>', where <name_of_service> is USR, INV etc"
+            echo 'Bye!'
+            exit 0 
+            ;;
+        * ) echo "Please enter 'y[es]' or 'n[o]'" 
+    esac
+    
+done
+
