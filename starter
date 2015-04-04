@@ -1,6 +1,6 @@
 #! /bin/bash
 
-declare -a services=("DVA" "INV/inventory" "USR/account" "BKS/backstage" "PUR/purchase")
+declare -a serv_pathes=("DVA" "INV/inventory" "USR/account" "BKS/backstage" "PUR/purchase")
 declare -a serv_names=("DVA" "INV" "USR" "BKS" "PUR")
 declare -a add_options=("" "" "" "export JAVA_OPTS='-Xms1024M -Xmx3072M -XX:MaxPermSize=1024M'" "export JAVA_OPTS='-Xms1024M -Xmx3072M -XX:MaxPermSize=1024M'" )
 declare -a script_names=("./diva" "./dev" "./dev" "./dev" "./dev")
@@ -24,68 +24,90 @@ cur_user=$(whoami)
 home_dir="/home/${cur_user}"
 gvm_settings_path="${home_dir}/.gvm/bin/gvm-init.sh"
 
-num_of_servs=${#services[*]}
-indx=0
-while [[ $indx -lt $num_of_servs ]]; do
+num_of_servs=${#serv_pathes[*]}
 
-    service="${services[${indx}]}"
+declare -i max_index
+while true; do
+    indx=0
+    list_of_serv=''
+
+    clear
+    echo 'Please select which set of services you want to run:'
+    while [[ $indx -lt $num_of_servs ]]; do
+        [[ -n "${list_of_serv}" ]] && list_of_serv="$list_of_serv + "
+        list_of_serv="${list_of_serv}${serv_names[${indx}]}"
+        label=`expr ${indx} + 1`
+        echo "${label}: ${list_of_serv}"
+        indx=`expr ${indx} + 1`
+    done
+
+    read -p "Please enter 1..${num_of_servs} " -n 1 -s max_ind_of_serv
+    echo
+
+    max_index=${max_ind_of_serv}
+    [[ "$max_index" -gt "0" ]] && [[ "$max_index" -lt "$num_of_servs" ]] && break
+done
+
+echo ""
+echo "Try to start ${max_index} services"
+echo ""
+
+date_start=`date +%s`
+
+indx=0
+while [[ $indx -lt $max_index ]]; do
+
+    srv_path="${serv_pathes[${indx}]}"
     srv_name="${serv_names[${indx}]}"
     script_name="${script_names[${indx}]}"
     add_opts="${add_options[${indx}]}"
-    port="${ports[${indx}]}"
 
-    read -p "try to start ${srv_name}? (y/n) " -n 1 -s is_continue
-    echo
-    case "${is_continue}" in
-        'y' | 'Y' )
-            if [ ${srv_name} == "DVA" ]; then
-                echo -n 'Please start DVA manually '
-            else
-                echo -n 'Service starts. Please wait '
-            fi
+    if [ ${srv_name} == "DVA" ]; then
+        echo -n 'Please start DVA manually '
+    else
+        echo -n "${srv_name} starts. Please wait "
+    fi
 	    
-            grails_version="DEFAULT"
-            app_props_filename="${root_dir}/${service}/application.properties"
-            if [ -s ${app_props_filename} ]; then
-	            while read line; do
-		            gr_vers=$(echo ${line} | sed -n '/grails.version.*/p' | cut --delimiter='=' --fields=2)
-		            [[ -n "${gr_vers}" ]] && grails_version=$gr_vers
-	            done < "${root_dir}/${service}/application.properties"
-            fi
+    grails_version="DEFAULT"
+    app_props_filename="${root_dir}/${srv_path}/application.properties"
+    if [ -s ${app_props_filename} ]; then
+	 while read line; do
+            gr_vers=$(echo ${line} | sed -n '/grails.version.*/p' | cut --delimiter='=' --fields=2)
+            [[ -n "${gr_vers}" ]] && grails_version=$gr_vers
+	 done < "${root_dir}/${srv_path}/application.properties"
+    fi
 
-	    starter_filename="${root_dir}/${starter_prefix}${srv_name}"
-            log_filename="${root_dir}/${srv_name}.log"
-	    serv_dir="${root_dir}/${service}"
-	    echo "#! /bin/bash" > "${starter_filename}"
-	    echo "cd ${serv_dir}" >> "${starter_filename}"
-	    echo "${add_opts}" >> "${starter_filename}"
-            if [ ${grails_version} != "DEFAULT" ]; then
-	            echo "[[ -s \"${gvm_settings_path}\" ]] && source \"${gvm_settings_path}\" " >> "${starter_filename}"
-	            echo "gvm use grails ${grails_version}" >> "${starter_filename}"
-            fi
-	    echo "${script_name} | tee -a ${log_filename}" >> "${starter_filename}"
+    starter_filename="${root_dir}/${starter_prefix}${srv_name}"
+    log_filename="${root_dir}/${srv_name}.log"
+    serv_dir="${root_dir}/${srv_path}"
+    echo "#! /bin/bash" > "${starter_filename}"
+    echo "cd ${serv_dir}" >> "${starter_filename}"
+    echo "${add_opts}" >> "${starter_filename}"
+    if [ ${grails_version} != "DEFAULT" ]; then
+	echo "[[ -s \"${gvm_settings_path}\" ]] && source \"${gvm_settings_path}\" " >> "${starter_filename}"
+	echo "gvm use grails ${grails_version}" >> "${starter_filename}"
+    fi
+    echo "${script_name} | tee -a ${log_filename}" >> "${starter_filename}"
 
-	    chmod 777 "${starter_filename}"
-            echo "" > "${log_filename}"
-	    xterm -e "${starter_filename}" &
+    chmod 777 "${starter_filename}"
+    echo "" > "${log_filename}"
+    xterm -e "${starter_filename}" &
 		 
-            until grep -i "server running" "${log_filename}" >/dev/null 2>&1; do
-                echo -n '.' 
-                sleep 3
-	    done
-            echo -e "\n${srv_name} successfully launched\n"
+    until grep -i "server running" "${log_filename}" >/dev/null 2>&1; do
+        echo -n '.' 
+        sleep 3
+    done
+    echo -e "\n${srv_name} successfully launched\n"
 
-	    indx=`expr ${indx} + 1`
-
-            ;;
-        'n' | 'N' )
-            break
-            ;;
-        * ) echo "Please enter 'y[es]' or 'n[o]'" 
-    esac
-    
+    indx=`expr ${indx} + 1`
 done
 
+date_end=`date +%s`
+different=`expr $date_end - $date_start`
+minutes=`expr $different / 60`
+seconds=`expr $different % 60`
+ 
+printf "All requested services started. It took %02u:%02u (min:sec) \n\n" $minutes $seconds
 echo 'If you want to restart some services those working at the moment:'
 echo '1. Stop it'
 echo "2. Run script \"${root_dir}/${starter_prefix}<name of service>\", where <name of service> is \"USR\", \"INV\" etc."
