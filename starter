@@ -45,7 +45,7 @@ while true; do
     echo
 
     max_index=${max_ind_of_serv}
-    [[ "$max_index" -gt "0" ]] && [[ "$max_index" -lt "$num_of_servs" ]] && break
+    [[ "$max_index" -gt "0" ]] && [[ "$max_index" -le "$num_of_servs" ]] && break
 done
 
 echo ""
