@@ -1,8 +1,58 @@
 #! /bin/bash
 
+function val_of_keyword {
+    sys_IFS=${IFS}
+    IFS=' ' read -a set_of_keys <<< "$1"
+
+    for item in "${set_of_keys[@]}"; do
+        keyword=`echo $item | cut -d '=' -f 1`
+       
+        if [ "${keyword}" == "${2}" ]; then
+            echo ${item} | cut -d '=' -f 2 | sed -e 's/\"//g'
+            IFS=${sys_IFS}
+            return
+        fi 
+    done
+}
+
+function brackets_content {
+    cont=$(echo ${1} | sed -e "s/.*${2}{//")
+    level=1
+    len_of_cont=${#cont}
+    result=''
+    
+    for (( idx=0; idx<len_of_cont; idx++ )); do
+        symbol=${cont:idx:1}
+        
+        case ${symbol} in
+            '{' )
+                if [ "${level}" -gt "0" ]; then
+                    result=${result}${symbol}
+                fi
+                level=`expr ${level} + 1`                
+                ;;
+            '}' )
+                level=`expr ${level} - 1`
+                if [ "${level}" -gt "0" ]; then
+                    result=${result}${symbol}
+                else
+                    break
+                fi
+                ;;
+            * )
+                if [ "${level}" -gt "0" ]; then
+                    result=${result}${symbol}
+                fi
+                ;;
+        esac
+    done
+
+    echo ${result}
+}
+
 declare -a serv_pathes=("DVA" "INV/inventory" "USR/account" "BKS/backstage" "PUR/purchase")
 declare -a serv_names=("DVA" "INV" "USR" "BKS" "PUR")
-declare -a add_options=("" "" "" "export JAVA_OPTS='-Xms1024M -Xmx3072M -XX:MaxPermSize=1024M'" "export JAVA_OPTS='-Xms1024M -Xmx3072M -XX:MaxPermSize=1024M'" )
+declare -a add_options=("" "" "export JAVA_OPTS='-Xms1024M -Xmx3072M -XX:MaxPermSize=1024M'" "export JAVA_OPTS='-Xms1024M -Xmx3072M -XX:MaxPermSize=1024M'" "export JAVA_OPTS='-Xms1024M -Xmx3072M -XX:MaxPermSize=1024M'" )
 declare -a script_names=("./diva" "./dev" "./dev" "./dev" "./dev")
 declare -a ports=("6666" "8083" "" "" "")
 
@@ -14,10 +64,14 @@ this_source="${BASH_SOURCE[0]}"
 while [ -h "${this_source}" ]; do # resolve $this_source until the file is no longer a symlink
   root_dir="$( cd -P "$( dirname "${this_source}" )" && pwd )"
   this_source="$(readlink "${this_source}")"
-  [[ ${this_source} != /* ]] && this_source="$DIR/${this_source}" # if ${this_source} was a relative symlink, we need to resolve it relative to the path where the symlink file was located
+
+  # if ${this_source} was a relative symlink, we need to resolve it relative 
+  # to the path where the symlink file was located
+  [[ ${this_source} != /* ]] && this_source="$DIR/${this_source}" 
 done
-root_dir="$( cd -P "$( dirname "${this_source}" )" && pwd )"
-root_dir=$( echo ${root_dir} | sed 's/\(.*\)\/\(.*\)/\1/' ) # remove a last part of the path ("/tfly_starter")
+
+tfly_starter_dir="$( cd -P "$( dirname "${this_source}" )" && pwd )"
+root_dir=$( echo ${tfly_starter_dir} | sed 's/\(.*\)\/\(.*\)/\1/' ) # remove a last part of the path ("/tfly_starter")
 cd ${root_dir}
 
 cur_user=$(whoami)
@@ -80,7 +134,43 @@ while [[ $indx -lt $max_index ]]; do
     starter_filename="${root_dir}/${starter_prefix}${srv_name}"
     log_filename="${root_dir}/${srv_name}.log"
     serv_dir="${root_dir}/${srv_path}"
+    liquibase_dir="${tfly_starter_dir}/liquibase"
+    grails_app_dir="${serv_dir}/grails-app"
+    migrations_dir="${grails_app_dir}/migrations"
+    data_source_groovy="${grails_app_dir}/conf/DataSource.groovy"
+
     echo "#! /bin/bash" > "${starter_filename}"
+    
+    if [ -d "${migrations_dir}" ] && [ -f "${data_source_groovy}" ]; then
+        while read config; do
+            conf="${conf}$(echo -e "${config}" | tr -d '[[:space:]]')" # strip all spaces
+            conf="${conf} " # add single space after the end of each line
+        done < "${data_source_groovy}"
+
+        conf=`brackets_content "${conf}" "environments"` 
+        conf=`brackets_content "${conf}" "development"`
+        conf=`brackets_content "${conf}" "dataSource"`
+
+        db_url=`val_of_keyword "${conf}" "url"`
+        db_username=`val_of_keyword "${conf}" "username"`
+        db_password=`val_of_keyword "${conf}" "password"`
+
+        if [ -n "${db_url}" -a -n "${db_username}" -a -n "${db_password}" ]; then
+            echo "echo '========== liquibase attempts to perform all migration ========='" >> "${starter_filename}"
+            echo "cd ${liquibase_dir}" >> "${starter_filename}"
+            echo -n "java -jar './liquibase.jar' " >> "${starter_filename}"
+            echo -n "--changeLogFile='${migrations_dir}/changelog.xml' " >> "${starter_filename}"
+            echo -n "--username='${db_username}' " >> "${starter_filename}"
+            echo -n "--password='${db_password}' " >> "${starter_filename}"
+            echo -n "--url='${db_url}' " >> "${starter_filename}"
+            echo "--classpath='${migrations_dir}:mysql-connector-java-5.1.34-bin.jar' update" >> "${starter_filename}"
+        else 
+            echo "echo '========== liquibase: not found an authentication data ========='" >> "${starter_filename}"
+        fi
+    else
+        echo "echo '========== liquibase: not found migrations dir or DataSource.groovy ========='" >> "${starter_filename}"
+    fi
+
     echo "cd ${serv_dir}" >> "${starter_filename}"
     echo "${add_opts}" >> "${starter_filename}"
     if [ ${grails_version} != "DEFAULT" ]; then
