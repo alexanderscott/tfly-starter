@@ -177,6 +177,9 @@ while [[ $indx -lt $max_index ]]; do
 	echo "[[ -s \"${gvm_settings_path}\" ]] && source \"${gvm_settings_path}\" " >> "${starter_filename}"
 	echo "gvm use grails ${grails_version}" >> "${starter_filename}"
     fi
+    if [ -f "${serv_dir}/grails-app/conf/BuildConfig.groovy" ]; then
+        echo "grails refresh-dependencies" >> "${starter_filename}"
+    fi
     echo "${script_name} | tee -a ${log_filename}" >> "${starter_filename}"
 
     chmod 777 "${starter_filename}"
