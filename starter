@@ -111,16 +111,14 @@ date_start=`date +%s`
 indx=0
 while [[ $indx -lt $max_index ]]; do
 
+    date_serv_start=`date +%s`
+
     srv_path="${serv_pathes[${indx}]}"
     srv_name="${serv_names[${indx}]}"
     script_name="${script_names[${indx}]}"
     add_opts="${add_options[${indx}]}"
 
-    if [ ${srv_name} == "DVA" ]; then
-        echo -n 'Please start DVA manually '
-    else
-        echo -n "${srv_name} starts. Please wait "
-    fi
+    echo -n "${srv_name} starts. Please wait "
 	    
     grails_version="DEFAULT"
     app_props_filename="${root_dir}/${srv_path}/application.properties"
@@ -156,7 +154,7 @@ while [[ $indx -lt $max_index ]]; do
         db_password=`val_of_keyword "${conf}" "password"`
 
         if [ -n "${db_url}" -a -n "${db_username}" -a -n "${db_password}" ]; then
-            echo "echo '========== liquibase attempts to perform all migration ========='" >> "${starter_filename}"
+            echo "echo '========== liquibase attempts to perform all migrations ========='" >> "${starter_filename}"
             echo "cd ${liquibase_dir}" >> "${starter_filename}"
             echo -n "java -jar './liquibase.jar' " >> "${starter_filename}"
             echo -n "--changeLogFile='${migrations_dir}/changelog.xml' " >> "${starter_filename}"
@@ -165,10 +163,12 @@ while [[ $indx -lt $max_index ]]; do
             echo -n "--url='${db_url}' " >> "${starter_filename}"
             echo "--classpath='${migrations_dir}:mysql-connector-java-5.1.34-bin.jar' update" >> "${starter_filename}"
         else 
-            echo "echo '========== liquibase: not found an authentication data ========='" >> "${starter_filename}"
+            echo "echo '========== ERROR: liquibase not found an authentication data! ========='" >> "${starter_filename}"
         fi
     else
-        echo "echo '========== liquibase: not found migrations dir or DataSource.groovy ========='" >> "${starter_filename}"
+        if [ ${srv_name} != "DVA" ]; then
+            echo "echo '========== ERROR: not found migrations dir or DataSource.groovy for liquibase! ========='" >> "${starter_filename}"
+        fi
     fi
 
     echo "cd ${serv_dir}" >> "${starter_filename}"
@@ -180,7 +180,14 @@ while [[ $indx -lt $max_index ]]; do
     if [ -f "${serv_dir}/grails-app/conf/BuildConfig.groovy" ]; then
         echo "grails refresh-dependencies" >> "${starter_filename}"
     fi
-    echo "${script_name} | tee -a ${log_filename}" >> "${starter_filename}"
+
+    input_val=""
+
+    if [ ${srv_name} == "DVA" ]; then
+        input_val='echo -e "project core\nliquibase-update\nproject server\nrun\n" | '
+    fi
+
+    echo "${input_val}${script_name} | tee -a ${log_filename}" >> "${starter_filename}"
 
     chmod 777 "${starter_filename}"
     echo "" > "${log_filename}"
@@ -188,9 +195,14 @@ while [[ $indx -lt $max_index ]]; do
 		 
     until grep -i "server running" "${log_filename}" >/dev/null 2>&1; do
         echo -n '.' 
-        sleep 3
+        sleep 5
     done
-    echo -e "\n${srv_name} successfully launched\n"
+
+    date_serv_end=`date +%s`
+    different=`expr $date_serv_end - $date_serv_start`
+    minutes=`expr $different / 60`
+    seconds=`expr $different % 60`  
+    printf "\n${srv_name} successfully launched. It took %02u:%02u (min:sec) \n\n" $minutes $seconds
 
     indx=`expr ${indx} + 1`
 done
