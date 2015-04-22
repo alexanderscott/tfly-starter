@@ -50,14 +50,53 @@ function brackets_content {
     echo ${result}
 }
 
+function launch_service
+{
+    date_serv_start=`date +%s`
+    chmod 777 "${1}"
+    echo "" > "${2}"
+
+    xterm -e "${1}" &
+    xterm_service_pid=$!
+
+    srv_pid=0
+    service_status='starts'
+    while [[ "${service_status}" = "starts" ]]; do
+        if grep -i "server running" "${2}" >/dev/null 2>&1; then
+            service_status="success"
+            srv_pid=${xterm_service_pid}
+            break
+        fi
+        if ! kill -0 $xterm_service_pid >/dev/null 2>&1; then
+            service_status="error"
+            echo -e "\nERROR: ${3} could not start. You can see all it's console messages in ${2}"
+            srv_pid=0
+            break
+        fi
+        echo -n '.'
+        sleep 5
+    done
+
+    if [[ "${service_status}" = "success" ]]; then
+        date_serv_end=`date +%s`
+        different=`expr $date_serv_end - $date_serv_start`
+        minutes=`expr $different / 60`
+        seconds=`expr $different % 60`  
+        printf "\n${3} successfully launched (PID=${srv_pid}). It took %02u:%02u (min:sec) \n\n" $minutes $seconds
+    fi
+
+    echo "${srv_pid}" > ${4}
+}
+
 declare -a serv_pathes=("DVA" "INV/inventory" "USR/account" "BKS/backstage" "PUR/purchase")
 declare -a serv_names=("DVA" "INV" "USR" "BKS" "PUR")
 declare -a add_options=("" "" "export JAVA_OPTS='-Xms1024M -Xmx3072M -XX:MaxPermSize=1024M'" "export JAVA_OPTS='-Xms1024M -Xmx3072M -XX:MaxPermSize=1024M'" "export JAVA_OPTS='-Xms1024M -Xmx3072M -XX:MaxPermSize=1024M'" )
 declare -a script_names=("./diva" "./dev" "./dev" "./dev" "./dev")
-declare -a ports=("6666" "8083" "" "" "")
 
 current_dir="$(pwd)"
 starter_prefix="tfly_starter_"
+service_status='success'
+declare -a pids
 
 # Determine a "root" directory
 this_source="${BASH_SOURCE[0]}"
@@ -103,7 +142,7 @@ while true; do
 done
 
 echo ""
-echo "Try to start ${max_index} services"
+echo "OK, I'm trying to start ${max_index} services"
 echo ""
 
 date_start=`date +%s`
@@ -111,15 +150,16 @@ date_start=`date +%s`
 indx=0
 while [[ $indx -lt $max_index ]]; do
 
-    date_serv_start=`date +%s`
-
     srv_path="${serv_pathes[${indx}]}"
     srv_name="${serv_names[${indx}]}"
     script_name="${script_names[${indx}]}"
     add_opts="${add_options[${indx}]}"
 
     echo -n "${srv_name} starts. Please wait "
-	    
+
+    #
+    # parse parameters and prepare service starter script
+    #
     grails_version="DEFAULT"
     app_props_filename="${root_dir}/${srv_path}/application.properties"
     if [ -s ${app_props_filename} ]; then
@@ -129,7 +169,8 @@ while [[ $indx -lt $max_index ]]; do
 	 done < "${root_dir}/${srv_path}/application.properties"
     fi
 
-    starter_filename="${root_dir}/${starter_prefix}${srv_name}"
+    starter_filename="${tfly_starter_dir}/${starter_prefix}${srv_name}"
+    pid_filename="${tfly_starter_dir}/PID.txt"
     log_filename="${root_dir}/${srv_name}.log"
     serv_dir="${root_dir}/${srv_path}"
     liquibase_dir="${tfly_starter_dir}/liquibase"
@@ -182,41 +223,120 @@ while [[ $indx -lt $max_index ]]; do
     fi
 
     input_val=""
-
     if [ ${srv_name} == "DVA" ]; then
         input_val='echo -e "project core\nliquibase-update\nproject server\nrun\n" | '
     fi
 
     echo "${input_val}${script_name} | tee -a ${log_filename}" >> "${starter_filename}"
 
-    chmod 777 "${starter_filename}"
-    echo "" > "${log_filename}"
-    xterm -e "${starter_filename}" &
-		 
-    until grep -i "server running" "${log_filename}" >/dev/null 2>&1; do
-        echo -n '.' 
-        sleep 5
-    done
+    launch_service "${starter_filename}" "${log_filename}" "${srv_name}" "${pid_filename}"
+    srv_pid=`cat "${pid_filename}"`
 
-    date_serv_end=`date +%s`
-    different=`expr $date_serv_end - $date_serv_start`
-    minutes=`expr $different / 60`
-    seconds=`expr $different % 60`  
-    printf "\n${srv_name} successfully launched. It took %02u:%02u (min:sec) \n\n" $minutes $seconds
+    if [[ "${srv_pid}" -gt "0" ]]; then
+        pids[${indx}]=${srv_pid}
+        indx=`expr ${indx} + 1`
+    else
+        pids[${indx}]=0
+        break
+    fi
 
-    indx=`expr ${indx} + 1`
 done
 
-date_end=`date +%s`
-different=`expr $date_end - $date_start`
-minutes=`expr $different / 60`
-seconds=`expr $different % 60`
+if [[ $indx -eq $max_index ]]; then
+    date_end=`date +%s`
+    different=`expr $date_end - $date_start`
+    minutes=`expr $different / 60`
+    seconds=`expr $different % 60`
  
-printf "All requested services started. It took %02u:%02u (min:sec) \n\n" $minutes $seconds
-echo 'If you want to restart some services those working at the moment:'
-echo '1. Stop it'
-echo "2. Run script \"${root_dir}/${starter_prefix}<name of service>\", where <name of service> is \"USR\", \"INV\" etc."
-echo 'Bye!'
+    printf "All requested services started. It took %02u:%02u (min:sec) \n\n" $minutes $seconds
+fi
+
+read -p "Please press any key for switching to the watchdog mode" -n 1 -s any_key
+
+# stop / restart some services
+num_of_servs=${#serv_pathes[*]}
+declare -i serv_index
+refresh_interval=5
+
+while true; do
+    clear
+    mon_text="Currently running (data is updated every $refresh_interval seconds): "
+    for (( idx=0; idx<${num_of_servs}; idx++ )); do
+        s_pid=${pids[idx]}
+        if [ -n "${s_pid}" ] && [ "${s_pid}" -gt "0" ] && kill -0 ${s_pid} >/dev/null 2>&1; then
+            mon_text="$mon_text ${serv_names[${idx}]}"
+        fi
+    done
+    echo -e $mon_text"\n"
+
+    indx=0
+    echo 'Please select which services you want to stop or start/restart:'
+    while [[ $indx -lt $num_of_servs ]]; do
+        echo "${indx}: ${serv_names[${indx}]}"
+        indx=`expr ${indx} + 1`
+    done
+    echo -e "${num_of_servs}: Stop all services and terminate this script\n "
+
+    read -p "Please enter 0..${num_of_servs} " -t ${refresh_interval} -n 1 -s indx_of_action
+    if [ -n "${indx_of_action}" ]; then
+        serv_index=${indx_of_action}
+        if [ "${serv_index}" -lt "${num_of_servs}" ]; then # processing one service
+            srvc_pid=${pids[${serv_index}]}
+            srv_name=${serv_names[${serv_index}]}
+
+            if [ -n "${srvc_pid}" ] && [ "${srvc_pid}" -gt "0" ]; then # if service is running
+                clear
+                echo "${srv_name} is currently running. Please select:"
+                echo "1 - stop it"
+                echo "2 - restart it"
+                echo "any other key - nothing"
+                read -n 1 -s action 
+                if [[ "${action}" = "1" ]] || [[ "${action}" = "2" ]]; then
+                    echo "trying to terminate process..."
+                    kill -INT ${srvc_pid}
+                    while kill -0 ${srvc_pid} >/dev/null 2>&1; do
+                        sleep 2
+                    done
+                    pids[${serv_index}]="0"
+                    if [[ "${action}" = "2" ]]; then
+                        echo "trying to start process..."
+                        starter_filename="${tfly_starter_dir}/${starter_prefix}${srv_name}"
+                        pid_filename="${tfly_starter_dir}/PID.txt"
+                        log_filename="${root_dir}/${srv_name}.log"
+
+                        launch_service "${starter_filename}" "${log_filename}" "${srv_name}" "${pid_filename}"
+                        pids[${serv_index}]=`cat "${pid_filename}"`
+                    fi
+                fi
+            else # service not running
+                clear
+                echo "${srv_name} is not running. Please select:"
+                echo "1 - start it"
+                echo "any other key - nothing"
+                read -n 1 -s action
+
+                if [[ "${action}" = "1" ]]; then
+                        echo "trying to start process..."
+                        starter_filename="${tfly_starter_dir}/${starter_prefix}${srv_name}"
+                        pid_filename="${tfly_starter_dir}/PID.txt"
+                        log_filename="${root_dir}/${srv_name}.log"
+
+                        launch_service "${starter_filename}" "${log_filename}" "${srv_name}" "${pid_filename}"
+                        pids[${serv_index}]=`cat "${pid_filename}"`
+
+                fi
+            fi
+        fi
+        if [ "${serv_index}" -eq "${num_of_servs}" ]; then # terminate all services and exit
+            for (( idx=0; idx<${num_of_servs}; idx++ )); do
+                kill -INT ${pids[idx]} >/dev/null 2>&1
+            done
+            break
+        fi
+    fi
+done
+
+echo "Bye!"
 cd "${current_dir}"
 exit 0 
 
