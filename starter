@@ -1,5 +1,18 @@
 #! /bin/bash
 
+declare -a serv_pathes=("DVA" "INV/inventory" "USR/account" "BKS/backstage" "PUR/purchase" "API/api")
+declare -a serv_names=("DVA" "INV" "USR" "BKS" "PUR" "API")
+declare -a script_names=("./diva" "./dev" "./dev" "./dev" "./dev" "./dev")
+declare -a add_options
+add_options[0]=""                                                            # DVA
+add_options[1]="export JAVA_OPTS='-Xms512M -Xmx3072M -XX:MaxPermSize=1024M'" # INV
+add_options[2]="export JAVA_OPTS='-Xms512M -Xmx3072M -XX:MaxPermSize=1024M'" # USR
+add_options[3]="export JAVA_OPTS='-Xms512M -Xmx3072M -XX:MaxPermSize=1024M'" # BKS
+add_options[4]="export JAVA_OPTS='-Xms512M -Xmx3072M -XX:MaxPermSize=1024M'" # PUR
+add_options[4]=""                                                            # API
+
+########### Don't change below it ##############
+
 function val_of_keyword {
     sys_IFS=${IFS}
     IFS=' ' read -a set_of_keys <<< "$1"
@@ -88,15 +101,12 @@ function launch_service
     echo "${srv_pid}" > ${4}
 }
 
-declare -a serv_pathes=("DVA" "INV/inventory" "USR/account" "BKS/backstage" "PUR/purchase")
-declare -a serv_names=("DVA" "INV" "USR" "BKS" "PUR")
-declare -a add_options=("" "" "export JAVA_OPTS='-Xms1024M -Xmx3072M -XX:MaxPermSize=1024M'" "export JAVA_OPTS='-Xms1024M -Xmx3072M -XX:MaxPermSize=1024M'" "export JAVA_OPTS='-Xms1024M -Xmx3072M -XX:MaxPermSize=1024M'" )
-declare -a script_names=("./diva" "./dev" "./dev" "./dev" "./dev")
-
 current_dir="$(pwd)"
 starter_prefix="tfly_starter_"
 service_status='success'
 declare -a pids
+
+cur_user=$(whoami)
 
 # Determine a "root" directory
 this_source="${BASH_SOURCE[0]}"
@@ -111,11 +121,15 @@ done
 
 tfly_starter_dir="$( cd -P "$( dirname "${this_source}" )" && pwd )"
 root_dir=$( echo ${tfly_starter_dir} | sed 's/\(.*\)\/\(.*\)/\1/' ) # remove a last part of the path ("/tfly_starter")
-cd ${root_dir}
-
-cur_user=$(whoami)
+tmp_dir="${tfly_starter_dir}/tmp"
+logs_dir="${tfly_starter_dir}/logs"
 home_dir="/home/${cur_user}"
 gvm_settings_path="${home_dir}/.gvm/bin/gvm-init.sh"
+
+cd ${root_dir}
+
+mkdir -p "${tfly_starter_dir}/logs"
+mkdir -p "${tmp_dir}"
 
 num_of_servs=${#serv_pathes[*]}
 
@@ -169,9 +183,9 @@ while [[ $indx -lt $max_index ]]; do
 	 done < "${root_dir}/${srv_path}/application.properties"
     fi
 
-    starter_filename="${tfly_starter_dir}/${starter_prefix}${srv_name}"
-    pid_filename="${tfly_starter_dir}/PID.txt"
-    log_filename="${root_dir}/${srv_name}.log"
+    starter_filename="${tmp_dir}/${starter_prefix}${srv_name}"
+    pid_filename="${tmp_dir}/PID.txt"
+    log_filename="${logs_dir}/${srv_name}.log"
     serv_dir="${root_dir}/${srv_path}"
     liquibase_dir="${tfly_starter_dir}/liquibase"
     grails_app_dir="${serv_dir}/grails-app"
@@ -260,6 +274,7 @@ refresh_interval=5
 
 while true; do
     clear
+    echo "     --- "`date +%H:%M:%S`" ---"
     mon_text="Currently running (data is updated every $refresh_interval seconds): "
     for (( idx=0; idx<${num_of_servs}; idx++ )); do
         s_pid=${pids[idx]}
@@ -300,9 +315,9 @@ while true; do
                     pids[${serv_index}]="0"
                     if [[ "${action}" = "2" ]]; then
                         echo "trying to start process..."
-                        starter_filename="${tfly_starter_dir}/${starter_prefix}${srv_name}"
-                        pid_filename="${tfly_starter_dir}/PID.txt"
-                        log_filename="${root_dir}/${srv_name}.log"
+                        starter_filename="${tmp_dir}/${starter_prefix}${srv_name}"
+                        pid_filename="${tmp_dir}/PID.txt"
+                        log_filename="${logs_dir}/${srv_name}.log"
 
                         launch_service "${starter_filename}" "${log_filename}" "${srv_name}" "${pid_filename}"
                         pids[${serv_index}]=`cat "${pid_filename}"`
@@ -317,9 +332,9 @@ while true; do
 
                 if [[ "${action}" = "1" ]]; then
                         echo "trying to start process..."
-                        starter_filename="${tfly_starter_dir}/${starter_prefix}${srv_name}"
-                        pid_filename="${tfly_starter_dir}/PID.txt"
-                        log_filename="${root_dir}/${srv_name}.log"
+                        starter_filename="${tmp_dir}/${starter_prefix}${srv_name}"
+                        pid_filename="${tmp_dir}/PID.txt"
+                        log_filename="${logs_dir}/${srv_name}.log"
 
                         launch_service "${starter_filename}" "${log_filename}" "${srv_name}" "${pid_filename}"
                         pids[${serv_index}]=`cat "${pid_filename}"`
@@ -336,7 +351,7 @@ while true; do
     fi
 done
 
-echo "Bye!"
+echo -e "\nBye!"
 cd "${current_dir}"
 exit 0 
 
