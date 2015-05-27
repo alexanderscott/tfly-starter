@@ -63,6 +63,11 @@ function brackets_content {
     echo ${result}
 }
 
+# @parm 1 $starter_filename
+# @parm 2 $log_filename
+# @parm 3 $srv_name
+# @parm 4 $pid_filename
+#
 function launch_service
 {
     date_serv_start=`date +%s`
@@ -101,8 +106,87 @@ function launch_service
     echo "${srv_pid}" > ${4}
 }
 
+# @parm 1 $srv_name
+# @parm 2 $srv_path
+# @parm 3 $log_filename
+# @parm 4 $tfly_starter_dir
+# @parm 5 $add_opts
+# @parm 6 $home_dir
+# @parm 7 $starter_filename
+#
+# parse parameters and prepare service starter script
+#
+function make_starter_file {
+    echo -n "${1} starts. Please wait "
+
+    grails_version="DEFAULT"
+    app_props_filename="${2}/application.properties"
+    if [ -s ${app_props_filename} ]; then
+	 while read line; do
+            gr_vers=$(echo ${line} | sed -n '/grails.version.*/p' | cut --delimiter='=' --fields=2)
+            [[ -n "${gr_vers}" ]] && grails_version=$gr_vers
+	 done < "${app_props_filename}"
+    fi
+
+    liquibase_dir="${4}/liquibase"
+    grails_app_dir="${2}/grails-app"
+    migrations_dir="${grails_app_dir}/migrations"
+    data_source_groovy="${grails_app_dir}/conf/DataSource.groovy"
+    gvm_settings_path="${6}/.gvm/bin/gvm-init.sh"
+
+    echo "#! /bin/bash" > "${7}"
+    
+    if [ -d "${migrations_dir}" ] && [ -f "${data_source_groovy}" ]; then
+        while read config; do
+            conf="${conf}$(echo -e "${config}" | tr -d '[[:space:]]')" # strip all spaces
+            conf="${conf} " # add single space after the end of each line
+        done < "${data_source_groovy}"
+
+        conf=`brackets_content "${conf}" "environments"` 
+        conf=`brackets_content "${conf}" "development"`
+        conf=`brackets_content "${conf}" "dataSource"`
+
+        db_url=`val_of_keyword "${conf}" "url"`
+        db_username=`val_of_keyword "${conf}" "username"`
+        db_password=`val_of_keyword "${conf}" "password"`
+
+        if [ -n "${db_url}" -a -n "${db_username}" -a -n "${db_password}" ]; then
+            echo "echo '========== liquibase attempts to perform all migrations ========='" >> "${7}"
+            echo "cd ${liquibase_dir}" >> "${7}"
+            echo -n "java -jar './liquibase.jar' " >> "${7}"
+            echo -n "--changeLogFile='${migrations_dir}/changelog.xml' " >> "${7}"
+            echo -n "--username='${db_username}' " >> "${7}"
+            echo -n "--password='${db_password}' " >> "${7}"
+            echo -n "--url='${db_url}' " >> "${7}"
+            echo "--classpath='${migrations_dir}:mysql-connector-java-5.1.34-bin.jar' update" >> "${7}"
+        else 
+            echo "echo '========== ERROR: liquibase not found an authentication data! ========='" >> "${7}"
+        fi
+    else
+        if [ ${1} != "DVA" ]; then
+            echo "echo '========== ERROR: not found migrations dir or DataSource.groovy for liquibase! ========='" >> "${7}"
+        fi
+    fi
+
+    echo "cd ${2}" >> "${7}"
+    echo "${5}" >> "${7}"
+    if [ ${grails_version} != "DEFAULT" ]; then
+	echo "[[ -s \"${gvm_settings_path}\" ]] && source \"${gvm_settings_path}\" " >> "${7}"
+	echo "gvm use grails ${grails_version}" >> "${7}"
+    fi
+    if [ -f "${2}/grails-app/conf/BuildConfig.groovy" ]; then
+        echo "grails refresh-dependencies" >> "${7}"
+    fi
+
+    input_val=""
+    if [ ${1} == "DVA" ]; then
+        input_val='echo -e "project core\nliquibase-update\nproject server\nrun\n" | '
+    fi
+
+    echo "${input_val}${script_name} | tee -a ${3}" >> "${7}"
+}
+
 current_dir="$(pwd)"
-starter_prefix="tfly_starter_"
 service_status='success'
 declare -a pids
 
@@ -123,8 +207,8 @@ tfly_starter_dir="$( cd -P "$( dirname "${this_source}" )" && pwd )"
 root_dir=$( echo ${tfly_starter_dir} | sed 's/\(.*\)\/\(.*\)/\1/' ) # remove a last part of the path ("/tfly_starter")
 tmp_dir="${tfly_starter_dir}/tmp"
 logs_dir="${tfly_starter_dir}/logs"
+scripts_dir="${tfly_starter_dir}/scripts"
 home_dir="/home/${cur_user}"
-gvm_settings_path="${home_dir}/.gvm/bin/gvm-init.sh"
 
 cd ${root_dir}
 
@@ -133,12 +217,11 @@ mkdir -p "${tmp_dir}"
 
 num_of_servs=${#serv_pathes[*]}
 
-declare -i max_index
 while true; do
     indx=0
     list_of_serv=''
 
-    clear
+    reset
     echo 'Please select which set of services you want to run:'
     while [[ $indx -lt $num_of_servs ]]; do
         [[ -n "${list_of_serv}" ]] && list_of_serv="$list_of_serv + "
@@ -148,11 +231,10 @@ while true; do
         indx=`expr ${indx} + 1`
     done
 
-    read -p "Please enter 1..${num_of_servs} " -n 1 -s max_ind_of_serv
+    read -p "Please enter 1..${num_of_servs} " -n 1 -s max_index
     echo
 
-    max_index=${max_ind_of_serv}
-    [[ "$max_index" -gt "0" ]] && [[ "$max_index" -le "$num_of_servs" ]] && break
+    [[ "$max_index" =~ ^[0-9]$ ]] && [[ "$max_index" -gt "0" ]] && [[ "$max_index" -le "$num_of_servs" ]] && break
 done
 
 echo ""
@@ -164,87 +246,7 @@ date_start=`date +%s`
 indx=0
 while [[ $indx -lt $max_index ]]; do
 
-    srv_path="${serv_pathes[${indx}]}"
-    srv_name="${serv_names[${indx}]}"
-    script_name="${script_names[${indx}]}"
-    add_opts="${add_options[${indx}]}"
-
-    echo -n "${srv_name} starts. Please wait "
-
-    #
-    # parse parameters and prepare service starter script
-    #
-    grails_version="DEFAULT"
-    app_props_filename="${root_dir}/${srv_path}/application.properties"
-    if [ -s ${app_props_filename} ]; then
-	 while read line; do
-            gr_vers=$(echo ${line} | sed -n '/grails.version.*/p' | cut --delimiter='=' --fields=2)
-            [[ -n "${gr_vers}" ]] && grails_version=$gr_vers
-	 done < "${root_dir}/${srv_path}/application.properties"
-    fi
-
-    starter_filename="${tmp_dir}/${starter_prefix}${srv_name}"
-    pid_filename="${tmp_dir}/PID.txt"
-    log_filename="${logs_dir}/${srv_name}.log"
-    serv_dir="${root_dir}/${srv_path}"
-    liquibase_dir="${tfly_starter_dir}/liquibase"
-    grails_app_dir="${serv_dir}/grails-app"
-    migrations_dir="${grails_app_dir}/migrations"
-    data_source_groovy="${grails_app_dir}/conf/DataSource.groovy"
-
-    echo "#! /bin/bash" > "${starter_filename}"
-    
-    if [ -d "${migrations_dir}" ] && [ -f "${data_source_groovy}" ]; then
-        while read config; do
-            conf="${conf}$(echo -e "${config}" | tr -d '[[:space:]]')" # strip all spaces
-            conf="${conf} " # add single space after the end of each line
-        done < "${data_source_groovy}"
-
-        conf=`brackets_content "${conf}" "environments"` 
-        conf=`brackets_content "${conf}" "development"`
-        conf=`brackets_content "${conf}" "dataSource"`
-
-        db_url=`val_of_keyword "${conf}" "url"`
-        db_username=`val_of_keyword "${conf}" "username"`
-        db_password=`val_of_keyword "${conf}" "password"`
-
-        if [ -n "${db_url}" -a -n "${db_username}" -a -n "${db_password}" ]; then
-            echo "echo '========== liquibase attempts to perform all migrations ========='" >> "${starter_filename}"
-            echo "cd ${liquibase_dir}" >> "${starter_filename}"
-            echo -n "java -jar './liquibase.jar' " >> "${starter_filename}"
-            echo -n "--changeLogFile='${migrations_dir}/changelog.xml' " >> "${starter_filename}"
-            echo -n "--username='${db_username}' " >> "${starter_filename}"
-            echo -n "--password='${db_password}' " >> "${starter_filename}"
-            echo -n "--url='${db_url}' " >> "${starter_filename}"
-            echo "--classpath='${migrations_dir}:mysql-connector-java-5.1.34-bin.jar' update" >> "${starter_filename}"
-        else 
-            echo "echo '========== ERROR: liquibase not found an authentication data! ========='" >> "${starter_filename}"
-        fi
-    else
-        if [ ${srv_name} != "DVA" ]; then
-            echo "echo '========== ERROR: not found migrations dir or DataSource.groovy for liquibase! ========='" >> "${starter_filename}"
-        fi
-    fi
-
-    echo "cd ${serv_dir}" >> "${starter_filename}"
-    echo "${add_opts}" >> "${starter_filename}"
-    if [ ${grails_version} != "DEFAULT" ]; then
-	echo "[[ -s \"${gvm_settings_path}\" ]] && source \"${gvm_settings_path}\" " >> "${starter_filename}"
-	echo "gvm use grails ${grails_version}" >> "${starter_filename}"
-    fi
-    if [ -f "${serv_dir}/grails-app/conf/BuildConfig.groovy" ]; then
-        echo "grails refresh-dependencies" >> "${starter_filename}"
-    fi
-
-    input_val=""
-    if [ ${srv_name} == "DVA" ]; then
-        input_val='echo -e "project core\nliquibase-update\nproject server\nrun\n" | '
-    fi
-
-    echo "${input_val}${script_name} | tee -a ${log_filename}" >> "${starter_filename}"
-
-    launch_service "${starter_filename}" "${log_filename}" "${srv_name}" "${pid_filename}"
-    srv_pid=`cat "${pid_filename}"`
+    . "${scripts_dir}/make_launcher_and_launch"
 
     if [[ "${srv_pid}" -gt "0" ]]; then
         pids[${indx}]=${srv_pid}
@@ -253,7 +255,6 @@ while [[ $indx -lt $max_index ]]; do
         pids[${indx}]=0
         break
     fi
-
 done
 
 if [[ $indx -eq $max_index ]]; then
@@ -273,7 +274,7 @@ declare -i serv_index
 refresh_interval=5
 
 while true; do
-    clear
+    reset
     echo "     --- "`date +%H:%M:%S`" ---"
     mon_text="Currently running (data is updated every $refresh_interval seconds): "
     for (( idx=0; idx<${num_of_servs}; idx++ )); do
@@ -284,23 +285,24 @@ while true; do
     done
     echo -e $mon_text"\n"
 
-    indx=0
+    indx_s=0
     echo 'Please select which services you want to stop or start/restart:'
-    while [[ $indx -lt $num_of_servs ]]; do
-        echo "${indx}: ${serv_names[${indx}]}"
-        indx=`expr ${indx} + 1`
+    while [[ $indx_s -lt $num_of_servs ]]; do
+        echo "${indx_s}: ${serv_names[${indx_s}]}"
+        indx_s=`expr ${indx_s} + 1`
     done
     echo -e "${num_of_servs}: Stop all services and terminate this script\n "
 
     read -p "Please enter 0..${num_of_servs} " -t ${refresh_interval} -n 1 -s indx_of_action
+    if [[ "$max_index" =~ ^[0-9]$ ]]; then
     if [ -n "${indx_of_action}" ]; then
-        serv_index=${indx_of_action}
-        if [ "${serv_index}" -lt "${num_of_servs}" ]; then # processing one service
-            srvc_pid=${pids[${serv_index}]}
-            srv_name=${serv_names[${serv_index}]}
+        indx=${indx_of_action}
+        if [ "${indx}" -lt "${num_of_servs}" ]; then # processing one service
+            srvc_pid=${pids[${indx}]}
+            srv_name=${serv_names[${indx}]}
 
             if [ -n "${srvc_pid}" ] && [ "${srvc_pid}" -gt "0" ]; then # if service is running
-                clear
+                reset
                 echo "${srv_name} is currently running. Please select:"
                 echo "1 - stop it"
                 echo "2 - restart it"
@@ -312,19 +314,15 @@ while true; do
                     while kill -0 ${srvc_pid} >/dev/null 2>&1; do
                         sleep 2
                     done
-                    pids[${serv_index}]="0"
+                    pids[${indx}]="0"
                     if [[ "${action}" = "2" ]]; then
                         echo "trying to start process..."
-                        starter_filename="${tmp_dir}/${starter_prefix}${srv_name}"
-                        pid_filename="${tmp_dir}/PID.txt"
-                        log_filename="${logs_dir}/${srv_name}.log"
-
-                        launch_service "${starter_filename}" "${log_filename}" "${srv_name}" "${pid_filename}"
-                        pids[${serv_index}]=`cat "${pid_filename}"`
+                        . "${scripts_dir}/make_launcher_and_launch"
+                        pids[${indx}]=${srv_pid}
                     fi
                 fi
             else # service not running
-                clear
+                reset
                 echo "${srv_name} is not running. Please select:"
                 echo "1 - start it"
                 echo "any other key - nothing"
@@ -332,22 +330,18 @@ while true; do
 
                 if [[ "${action}" = "1" ]]; then
                         echo "trying to start process..."
-                        starter_filename="${tmp_dir}/${starter_prefix}${srv_name}"
-                        pid_filename="${tmp_dir}/PID.txt"
-                        log_filename="${logs_dir}/${srv_name}.log"
-
-                        launch_service "${starter_filename}" "${log_filename}" "${srv_name}" "${pid_filename}"
-                        pids[${serv_index}]=`cat "${pid_filename}"`
-
+                        . "${scripts_dir}/make_launcher_and_launch"
+                        pids[${indx}]=${srv_pid}
                 fi
             fi
         fi
-        if [ "${serv_index}" -eq "${num_of_servs}" ]; then # terminate all services and exit
+        if [ "${indx}" -eq "${num_of_servs}" ]; then # terminate all services and exit
             for (( idx=0; idx<${num_of_servs}; idx++ )); do
                 kill -INT ${pids[idx]} >/dev/null 2>&1
             done
             break
         fi
+    fi
     fi
 done
 
