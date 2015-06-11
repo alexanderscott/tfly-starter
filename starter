@@ -5,11 +5,11 @@ declare -a serv_names=("DVA" "INV" "USR" "BKS" "PUR" "API")
 declare -a script_names=("./diva" "./dev" "./dev" "./dev" "./dev" "./dev")
 declare -a add_options
 add_options[0]=""                                                            # DVA
-add_options[1]="export JAVA_OPTS='-Xms512M -Xmx3072M -XX:MaxPermSize=1024M'" # INV
-add_options[2]="export JAVA_OPTS='-Xms512M -Xmx3072M -XX:MaxPermSize=1024M'" # USR
-add_options[3]="export JAVA_OPTS='-Xms512M -Xmx3072M -XX:MaxPermSize=1024M'" # BKS
-add_options[4]="export JAVA_OPTS='-Xms512M -Xmx3072M -XX:MaxPermSize=1024M'" # PUR
-add_options[4]=""                                                            # API
+add_options[1]="export JAVA_OPTS='-Xms256M -Xmx3072M -XX:MaxPermSize=1024M'" # INV
+add_options[2]="export JAVA_OPTS='-Xms256M -Xmx3072M -XX:MaxPermSize=1024M'" # USR
+add_options[3]="export JAVA_OPTS='-Xms256M -Xmx3072M -XX:MaxPermSize=1024M'" # BKS
+add_options[4]="export JAVA_OPTS='-Xms256M -Xmx3072M -XX:MaxPermSize=1024M'" # PUR
+add_options[5]="export JAVA_OPTS='-Xms256M -Xmx3072M -XX:MaxPermSize=1024M'" # API
 
 ########### Don't change below it ##############
 
@@ -163,7 +163,7 @@ function make_starter_file {
             echo "echo '========== ERROR: liquibase not found an authentication data! ========='" >> "${7}"
         fi
     else
-        if [ ${1} != "DVA" ]; then
+        if [ ${1} != "DVA" ] && [ ${1} != "API" ]; then
             echo "echo '========== ERROR: not found migrations dir or DataSource.groovy for liquibase! ========='" >> "${7}"
         fi
     fi
