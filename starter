@@ -2,7 +2,7 @@
 
 declare -a serv_pathes=("DVA" "INV/inventory" "USR/account" "BKS/backstage" "PUR/purchase" "API/api")
 declare -a serv_names=("DVA" "INV" "USR" "BKS" "PUR" "API")
-declare -a script_names=("./diva" "./dev" "./dev" "./dev" "./dev" "./dev")
+declare -a script_names=("./diva" "./dev" "./dev" "./jconsole" "./dev" "./dev")
 declare -a add_options
 add_options[0]=""                                                            # DVA
 add_options[1]="export JAVA_OPTS='-Xms256M -Xmx3072M -XX:MaxPermSize=1024M'" # INV
@@ -208,6 +208,7 @@ root_dir=$( echo ${tfly_starter_dir} | sed 's/\(.*\)\/\(.*\)/\1/' ) # remove a l
 tmp_dir="${tfly_starter_dir}/tmp"
 logs_dir="${tfly_starter_dir}/logs"
 scripts_dir="${tfly_starter_dir}/scripts"
+conf_dir="${tfly_starter_dir}/conf"
 home_dir="/home/${cur_user}"
 
 cd ${root_dir}
@@ -216,6 +217,10 @@ mkdir -p "${tfly_starter_dir}/logs"
 mkdir -p "${tmp_dir}"
 
 num_of_servs=${#serv_pathes[*]}
+
+# Run elasticsearch
+xterm -e "${conf_dir}/elasticsearch" &
+elasticsearch_pid=$!
 
 while true; do
     indx=0
@@ -339,6 +344,7 @@ while true; do
             for (( idx=0; idx<${num_of_servs}; idx++ )); do
                 kill -INT ${pids[idx]} >/dev/null 2>&1
             done
+            kill -INT ${elasticsearch_pid} >/dev/null 2>&1
             break
         fi
     fi
