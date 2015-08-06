@@ -1,8 +1,9 @@
 #! /bin/bash
 
-declare -a serv_pathes=("DVA" "INV/inventory" "USR/account" "BKS/backstage" "PUR/purchase" "API/api")
-declare -a serv_names=("DVA" "INV" "USR" "BKS" "PUR" "API")
-declare -a script_names=("./diva" "./dev" "./dev" "./jconsole" "./dev" "./dev")
+declare -a serv_pathes=("DVA" "INV/inventory" "USR/account" "BKS/backstage" "PUR/purchase" "API/api" "BOX/boxoffice")
+declare -a serv_names=("DVA" "INV" "USR" "BKS" "PUR" "API" "BOX")
+declare -a script_names=("./diva" "./dev" "./dev" "./jconsole" "./dev" "./dev" "./dev")
+declare -a java_versions=("java7" "java7" "java7" "java7" "java7" "java7" "java6")
 declare -a add_options
 add_options[0]=""                                                            # DVA
 add_options[1]="export JAVA_OPTS='-Xms256M -Xmx3072M -XX:MaxPermSize=1024M'" # INV
@@ -10,6 +11,7 @@ add_options[2]="export JAVA_OPTS='-Xms256M -Xmx3072M -XX:MaxPermSize=1024M'" # U
 add_options[3]="export JAVA_OPTS='-Xms256M -Xmx3072M -XX:MaxPermSize=1024M'" # BKS
 add_options[4]="export JAVA_OPTS='-Xms256M -Xmx3072M -XX:MaxPermSize=1024M'" # PUR
 add_options[5]="export JAVA_OPTS='-Xms256M -Xmx3072M -XX:MaxPermSize=1024M'" # API
+add_options[6]="export JAVA_OPTS='-Xms256M -Xmx3072M -XX:MaxPermSize=1024M'" # BOX
 
 ########### Don't change below it ##############
 
@@ -113,29 +115,43 @@ function launch_service
 # @parm 5 $add_opts
 # @parm 6 $home_dir
 # @parm 7 $starter_filename
+# @parm 8 $jversionfile_name
 #
 # parse parameters and prepare service starter script
 #
 function make_starter_file {
-    echo -n "${1} starts. Please wait "
+    local service_name=$1
+    local service_path=$2
+    local logfile_name=$3
+    local starter_dir=$4
+    local java_opts=$5
+    local home_path=$6
+    local filestarter_name=$7
+    local jvfile_name=$8
+
+    echo -n "${service_name} starts. Please wait "
 
     grails_version="DEFAULT"
-    app_props_filename="${2}/application.properties"
+    app_props_filename="${service_path}/application.properties"
     if [ -s ${app_props_filename} ]; then
-	 while read line; do
+         while read line; do
             gr_vers=$(echo ${line} | sed -n '/grails.version.*/p' | cut --delimiter='=' --fields=2)
             [[ -n "${gr_vers}" ]] && grails_version=$gr_vers
-	 done < "${app_props_filename}"
+         done < "${app_props_filename}"
     fi
 
-    liquibase_dir="${4}/liquibase"
-    grails_app_dir="${2}/grails-app"
+    liquibase_dir="${starter_dir}/liquibase"
+    grails_app_dir="${service_path}/grails-app"
     migrations_dir="${grails_app_dir}/migrations"
     data_source_groovy="${grails_app_dir}/conf/DataSource.groovy"
-    gvm_settings_path="${6}/.gvm/bin/gvm-init.sh"
+    gvm_settings_path="${home_path}/.gvm/bin/gvm-init.sh"
 
-    echo "#! /bin/bash" > "${7}"
-    
+    echo "#! /bin/bash" > "${filestarter_name}"
+
+    # set java version
+    read java_path < "${jvfile_name}"
+    echo "export JAVA_HOME=${java_path}" >> "${filestarter_name}"
+
     if [ -d "${migrations_dir}" ] && [ -f "${data_source_groovy}" ]; then
         while read config; do
             conf="${conf}$(echo -e "${config}" | tr -d '[[:space:]]')" # strip all spaces
@@ -151,39 +167,39 @@ function make_starter_file {
         db_password=`val_of_keyword "${conf}" "password"`
 
         if [ -n "${db_url}" -a -n "${db_username}" -a -n "${db_password}" ]; then
-            echo "echo '========== liquibase attempts to perform all migrations ========='" >> "${7}"
-            echo "cd ${liquibase_dir}" >> "${7}"
-            echo -n "java -jar './liquibase.jar' " >> "${7}"
-            echo -n "--changeLogFile='${migrations_dir}/changelog.xml' " >> "${7}"
-            echo -n "--username='${db_username}' " >> "${7}"
-            echo -n "--password='${db_password}' " >> "${7}"
-            echo -n "--url='${db_url}' " >> "${7}"
-            echo "--classpath='${migrations_dir}:mysql-connector-java-5.1.34-bin.jar' update" >> "${7}"
+            echo "echo '========== liquibase attempts to perform all migrations ========='" >> "${filestarter_name}"
+            echo "cd ${liquibase_dir}" >> "${filestarter_name}"
+            echo -n "java -jar './liquibase.jar' " >> "${filestarter_name}"
+            echo -n "--changeLogFile='${migrations_dir}/changelog.xml' " >> "${filestarter_name}"
+            echo -n "--username='${db_username}' " >> "${filestarter_name}"
+            echo -n "--password='${db_password}' " >> "${filestarter_name}"
+            echo -n "--url='${db_url}' " >> "${filestarter_name}"
+            echo "--classpath='${migrations_dir}:mysql-connector-java-5.1.34-bin.jar' update" >> "${filestarter_name}"
         else 
-            echo "echo '========== ERROR: liquibase not found an authentication data! ========='" >> "${7}"
+            echo "echo '========== ERROR: liquibase not found an authentication data! ========='" >> "${filestarter_name}"
         fi
     else
-        if [ ${1} != "DVA" ] && [ ${1} != "API" ]; then
-            echo "echo '========== ERROR: not found migrations dir or DataSource.groovy for liquibase! ========='" >> "${7}"
+        if [ ${service_name} != "DVA" ] && [ ${service_name} != "API" ]; then
+            echo "echo '========== ERROR: not found migrations dir or DataSource.groovy for liquibase! ========='" >> "${filestarter_name}"
         fi
     fi
 
-    echo "cd ${2}" >> "${7}"
-    echo "${5}" >> "${7}"
+    echo "cd ${service_path}" >> "${filestarter_name}"
+    echo "${java_opts}" >> "${filestarter_name}"
     if [ ${grails_version} != "DEFAULT" ]; then
-	echo "[[ -s \"${gvm_settings_path}\" ]] && source \"${gvm_settings_path}\" " >> "${7}"
-	echo "gvm use grails ${grails_version}" >> "${7}"
+	echo "[[ -s \"${gvm_settings_path}\" ]] && source \"${gvm_settings_path}\" " >> "${filestarter_name}"
+	echo "gvm use grails ${grails_version}" >> "${filestarter_name}"
     fi
-    if [ -f "${2}/grails-app/conf/BuildConfig.groovy" ]; then
-        echo "grails refresh-dependencies" >> "${7}"
+    if [ -f "${service_path}/grails-app/conf/BuildConfig.groovy" ]; then
+        echo "grails refresh-dependencies" >> "${filestarter_name}"
     fi
 
     input_val=""
-    if [ ${1} == "DVA" ]; then
+    if [ ${service_name} == "DVA" ]; then
         input_val='echo -e "project core\nliquibase-update\nproject server\nrun\n" | '
     fi
 
-    echo "${input_val}${script_name} | tee -a ${3}" >> "${7}"
+    echo "${input_val}${script_name} | tee -a ${logfile_name}" >> "${filestarter_name}"
 }
 
 current_dir="$(pwd)"
