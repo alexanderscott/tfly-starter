@@ -4,6 +4,7 @@ declare -a serv_pathes=("DVA" "INV/inventory" "USR/account" "BKS/backstage" "PUR
 declare -a serv_names=("DVA" "INV" "USR" "BKS" "PUR" "API" "BOX")
 declare -a script_names=("./diva" "./dev" "./dev" "./jconsole" "./dev" "./dev" "./dev")
 declare -a java_versions=("java8" "java6" "java6" "java6" "java6" "java6" "java6")
+declare -a grails_versions=("DEFAULT" "2.2.3" "2.2.3" "2.3.11" "2.2.3" "2.2.3" "2.2.3")
 declare -a add_options
 add_options[0]=""                                                            # DVA
 add_options[1]="export JAVA_OPTS='-Xms256M -Xmx3072M -XX:MaxPermSize=1024M'" # INV
@@ -76,7 +77,17 @@ function launch_service
     chmod 777 "${1}"
     echo "" > "${2}"
 
-    xterm -e "${1}" &
+    #tmux attach-session -t 'tfly' || tmux new-session -s 'tfly'
+    #tmux list-panes -F '#{pane_active} #{pane_pid} #{pane_title}'
+    #session_name=whatever
+    #window=${session}:0
+    #pane=${window}.4
+    #tmux send-keys -t "$pane" C-z 'some -new command' Enter
+    #tmux select-pane -t "$pane"
+    #tmux select-window -t "$window"
+    #tmux attach-session -t "$session_name"
+
+    /usr/X11/bin/xterm -e "${1}" &
     xterm_service_pid=$!
 
     srv_pid=0
@@ -116,6 +127,7 @@ function launch_service
 # @parm 6 $home_dir
 # @parm 7 $starter_filename
 # @parm 8 $jversionfile_name
+# @parm 9 $grails_version_name
 #
 # parse parameters and prepare service starter script
 #
@@ -128,23 +140,25 @@ function make_starter_file {
     local home_path=$6
     local filestarter_name=$7
     local jvfile_name=$8
+    local grails_version_name=$9
 
     echo -n "${service_name} starts. Please wait "
 
-    grails_version="DEFAULT"
+    grails_version="${grails_version_name}"
+    #grails_version="DEFAULT"
     app_props_filename="${service_path}/application.properties"
-    if [ -s ${app_props_filename} ]; then
-         while read line; do
-            gr_vers=$(echo ${line} | sed -n '/grails.version.*/p' | cut --delimiter='=' --fields=2)
-            [[ -n "${gr_vers}" ]] && grails_version=$gr_vers
-         done < "${app_props_filename}"
-    fi
+    #if [ -s ${app_props_filename} ]; then
+         #while read line; do
+            #gr_vers=$(echo ${line} | sed -n '/grails.version.*/p' | cut --delimiter='=' --fields=2)
+            #[[ -n "${gr_vers}" ]] && grails_version=$gr_vers
+         #done < "${app_props_filename}"
+    #fi
 
     liquibase_dir="${starter_dir}/liquibase"
     grails_app_dir="${service_path}/grails-app"
     migrations_dir="${grails_app_dir}/migrations"
     data_source_groovy="${grails_app_dir}/conf/DataSource.groovy"
-    gvm_settings_path="${home_path}/.gvm/bin/gvm-init.sh"
+    gvm_settings_path="${home_path}/.sdkman/bin/sdkman-init.sh"
 
     echo "#! /bin/bash" > "${filestarter_name}"
 
@@ -188,7 +202,7 @@ function make_starter_file {
     echo "${java_opts}" >> "${filestarter_name}"
     if [ ${grails_version} != "DEFAULT" ]; then
 	echo "[[ -s \"${gvm_settings_path}\" ]] && source \"${gvm_settings_path}\" " >> "${filestarter_name}"
-	echo "gvm use grails ${grails_version}" >> "${filestarter_name}"
+	echo "sdk use grails ${grails_version}" >> "${filestarter_name}"
     fi
     if [ -f "${service_path}/grails-app/conf/BuildConfig.groovy" ]; then
         echo "grails refresh-dependencies" >> "${filestarter_name}"
@@ -292,7 +306,7 @@ read -p "Please press any key for switching to the watchdog mode" -n 1 -s any_ke
 # stop / restart some services
 num_of_servs=${#serv_pathes[*]}
 declare -i serv_index
-refresh_interval=5
+refresh_interval=20
 
 while true; do
     reset
