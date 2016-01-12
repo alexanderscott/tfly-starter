@@ -1,2 +1,0 @@
-#! /bin/bash
-/home/a/tick/elasticsearch/bin/elasticsearch -f

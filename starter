@@ -3,7 +3,7 @@
 declare -a serv_pathes=("DVA" "INV/inventory" "USR/account" "BKS/backstage" "PUR/purchase" "API/api" "BOX/boxoffice")
 declare -a serv_names=("DVA" "INV" "USR" "BKS" "PUR" "API" "BOX")
 declare -a script_names=("./diva" "./dev" "./dev" "./jconsole" "./dev" "./dev" "./dev")
-declare -a java_versions=("java7" "java7" "java7" "java7" "java7" "java7" "java6")
+declare -a java_versions=("java8" "java6" "java6" "java6" "java6" "java6" "java6")
 declare -a add_options
 add_options[0]=""                                                            # DVA
 add_options[1]="export JAVA_OPTS='-Xms256M -Xmx3072M -XX:MaxPermSize=1024M'" # INV
@@ -235,8 +235,8 @@ mkdir -p "${tmp_dir}"
 num_of_servs=${#serv_pathes[*]}
 
 # Run elasticsearch
-xterm -e "${conf_dir}/elasticsearch" &
-elasticsearch_pid=$!
+# xterm -e "${conf_dir}/elasticsearch" &
+# elasticsearch_pid=$!
 
 while true; do
     indx=0
@@ -360,7 +360,7 @@ while true; do
             for (( idx=0; idx<${num_of_servs}; idx++ )); do
                 kill -INT ${pids[idx]} >/dev/null 2>&1
             done
-            kill -INT ${elasticsearch_pid} >/dev/null 2>&1
+            #kill -INT ${elasticsearch_pid} >/dev/null 2>&1
             break
         fi
     fi
