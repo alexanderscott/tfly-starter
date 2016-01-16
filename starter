@@ -70,8 +70,7 @@ function brackets_content {
 # @parm 2 $log_filename
 # @parm 3 $srv_name
 # @parm 4 $pid_filename
-#
-function launch_service
+function launch_service_tmux
 {
     date_serv_start=`date +%s`
     chmod 777 "${1}"
@@ -79,13 +78,35 @@ function launch_service
 
     #tmux attach-session -t 'tfly' || tmux new-session -s 'tfly'
     #tmux list-panes -F '#{pane_active} #{pane_pid} #{pane_title}'
-    #session_name=whatever
+    #session=tfly
     #window=${session}:0
     #pane=${window}.4
     #tmux send-keys -t "$pane" C-z 'some -new command' Enter
     #tmux select-pane -t "$pane"
     #tmux select-window -t "$window"
     #tmux attach-session -t "$session_name"
+
+    tmux new -s tfly || true
+    session=tfly
+    window=${session}:0
+    pane=${window}.0
+    tmux send-keys -t "$pane" C-z "${1}" Enter
+    #tmux select-pane -t "$pane"
+    #tmux select-window -t "$window"
+    #tmux attach-session -t "$session_name"
+
+}
+
+
+# @parm 1 $starter_filename
+# @parm 2 $log_filename
+# @parm 3 $srv_name
+# @parm 4 $pid_filename
+function launch_service
+{
+    date_serv_start=`date +%s`
+    chmod 777 "${1}"
+    echo "" > "${2}"
 
     /usr/X11/bin/xterm -e "${1}" &
     xterm_service_pid=$!
@@ -239,7 +260,7 @@ tmp_dir="${tfly_starter_dir}/tmp"
 logs_dir="${tfly_starter_dir}/logs"
 scripts_dir="${tfly_starter_dir}/scripts"
 conf_dir="${tfly_starter_dir}/conf"
-home_dir="/home/${cur_user}"
+home_dir="/Users/${cur_user}"
 
 cd ${root_dir}
 
@@ -306,7 +327,7 @@ read -p "Please press any key for switching to the watchdog mode" -n 1 -s any_ke
 # stop / restart some services
 num_of_servs=${#serv_pathes[*]}
 declare -i serv_index
-refresh_interval=20
+refresh_interval=10
 
 while true; do
     reset

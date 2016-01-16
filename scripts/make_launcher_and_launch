@@ -6,6 +6,6 @@
     pid_filename="${tmp_dir}/PID.txt"
 
     make_starter_file "${srv_name}" "${root_dir}/${serv_pathes[${indx}]}" "${log_filename}" "${tfly_starter_dir}" "${add_options[${indx}]}" "${home_dir}" "${starter_filename}" "${conf_dir}/${java_versions[${indx}]}" "${grails_versions[${indx}]}"
-    launch_service "${starter_filename}" "${log_filename}" "${srv_name}" "${pid_filename}" 
+    launch_service_tmux "${starter_filename}" "${log_filename}" "${srv_name}" "${pid_filename}" 
     srv_pid=`cat "${pid_filename}"`
 
